@@ -10,4 +10,5 @@
 Makefile
 Makefile.in
 *.lo
+*.la
 plugin.c
