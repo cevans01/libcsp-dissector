@@ -48,8 +48,9 @@
 #endif
 
 #include <epan/packet.h>   /* Should be first Wireshark include (other than config.h) */
-#include <epan/expert.h>   /* Include only as needed */
-#include <epan/prefs.h>    /* Include only as needed */
+//#include <epan/expert.h>   /* Include only as needed */
+//#include <epan/prefs.h>    /* Include only as needed */
+#include <epan/decode_as.h>
 
 #if 0
 /* IF AND ONLY IF your protocol dissector exposes code to other dissectors
@@ -60,23 +61,34 @@
 #include "packet-csp.h"
 #endif
 
+// TODO: include this
+//#include <csp/csp_types.h>
+#define CSP_ID_PRIO_SIZE		2
+#define CSP_ID_HOST_SIZE		5
+#define CSP_ID_PORT_SIZE		6
+#define CSP_ID_FLAGS_SIZE		8
+
 /* Prototypes */
 /* (Required to prevent [-Wmissing-prototypes] warnings */
 void proto_reg_handoff_csp(void);
 void proto_register_csp(void);
 
 /* Initialize the protocol and registered fields */
-static int proto_csp = -1;
-static int hf_csp_FIELDABBREV = -1;
-static expert_field ei_csp_EXPERTABBREV = EI_INIT;
+static int proto_csp    = -1;
+static int hf_csp_prio  = -1;
+static int hf_csp_src   = -1;
+static int hf_csp_dst   = -1;
+static int hf_csp_sport = -1;
+static int hf_csp_dport = -1;
+static int hf_csp_flags = -1;
 
 /* Global sample preference ("controls" display of numbers) */
 static gboolean pref_hex = FALSE;
 /* Global sample port preference - real port preferences should generally
  * default to 0 unless there is an IANA-registered (or equivalent) port for your
  * protocol. */
-#define PROTOABBREV_TCP_PORT 1234
-static guint tcp_port_pref = PROTOABBREV_TCP_PORT;
+//#define CSP_TCP_PORT 1234
+//static guint tcp_port_pref = CSP_TCP_PORT;
 
 /* Initialize the subtree pointers */
 static gint ett_csp = -1;
@@ -84,7 +96,7 @@ static gint ett_csp = -1;
 /* A sample #define of the minimum length (in bytes) of the protocol data.
  * If data is received with fewer than this many bytes it is rejected by
  * the current dissector. */
-#define PROTOABBREV_MIN_LENGTH 8
+#define CSP_MIN_LENGTH 4
 
 /* Code to actually dissect the packets */
 static int
@@ -92,7 +104,7 @@ dissect_csp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
         void *data _U_)
 {
     /* Set up structures needed to add the protocol subtree and manage it */
-    proto_item *ti, *expert_ti;
+    //proto_item *ti, *expert_ti;
     proto_tree *csp_tree;
     /* Other misc. local variables. */
     guint       offset = 0;
@@ -112,23 +124,7 @@ dissect_csp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
      */
 
     /* Check that the packet is long enough for it to belong to us. */
-    if (tvb_reported_length(tvb) < PROTOABBREV_MIN_LENGTH)
-        return 0;
-
-    /* Check that there's enough data present to run the heuristics. If there
-     * isn't, reject the packet; it will probably be dissected as data and if
-     * the user wants it dissected despite it being short they can use the
-     * "Decode-As" functionality. If your heuristic needs to look very deep into
-     * the packet you may not want to require *all* data to be present, but you
-     * should ensure that the heuristic does not access beyond the captured
-     * length of the packet regardless. */
-    if (tvb_captured_length(tvb) < MAX_NEEDED_FOR_HEURISTICS)
-        return 0;
-
-    /* Fetch some values from the packet header using tvb_get_*(). If these
-     * values are not valid/possible in your protocol then return 0 to give
-     * some other dissector a chance to dissect it. */
-    if ( TEST_HEURISTICS_FAIL )
+    if (tvb_reported_length(tvb) < CSP_MIN_LENGTH)
         return 0;
 
     /*** COLUMN DATA ***/
@@ -156,9 +152,9 @@ dissect_csp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
      */
 
     /* Set the Protocol column to the constant string of csp */
-    col_set_str(pinfo->cinfo, COL_PROTOCOL, "csp");
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "CSP");
 
-#if 0
+#if 1
     /* If you will be fetching any data from the packet before filling in
      * the Info column, clear that column first in case the calls to fetch
      * data from the packet throw an exception so that the Info column doesn't
@@ -166,7 +162,7 @@ dissect_csp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
     col_clear(pinfo->cinfo, COL_INFO);
 #endif
 
-    col_set_str(pinfo->cinfo, COL_INFO, "XXX Request");
+    //col_set_str(pinfo->cinfo, COL_INFO, "XXX Request");
 
     /*** PROTOCOL TREE ***/
 
@@ -184,24 +180,45 @@ dissect_csp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree,
 
     /* create display subtree for the protocol */
     ti = proto_tree_add_item(tree, proto_csp, tvb, 0, -1, ENC_NA);
-
     csp_tree = proto_item_add_subtree(ti, ett_csp);
 
-    /* Add an item to the subtree, see section 1.5 of README.dissector for more
-     * information. */
-    expert_ti = proto_tree_add_item(csp_tree, hf_csp_FIELDABBREV, tvb,
-            offset, len, ENC_xxx);
-    offset += len;
-    /* Some fields or situations may require "expert" analysis that can be
-     * specifically highlighted. */
-    if ( TEST_EXPERT_condition )
-        /* value of hf_csp_FIELDABBREV isn't what's expected */
-        expert_add_info(pinfo, expert_ti, &ei_csp_EXPERTABBREV);
+    guint8 prio  = 0;
+    guint8 src   = 0;
+    guint8 dst   = 0;
+    guint8 sport = 0;
+    guint8 dport = 0;
+    guint8 flags = 0;
 
-    /* Continue adding tree items to process the packet here... */
+    // Priority
+    prio = tvb_get_bits32(tvb, 0, CSP_ID_PRIO_SIZE);
+    proto_tree_add_bits_item(csp_tree, hf_csp_prio, tvb, bitoffs, CSP_ID_PRIO_SIZE, ENC_BIG_ENDIAN);
+    bitoffs += CSP_ID_PRIO_SIZE;
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "PRIO");
+    
+    // Source
+    proto_tree_add_bits_item(csp_tree, hf_csp_src, tvb, bitoffs, CSP_ID_HOST_SIZE, ENC_BIG_ENDIAN);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "SOURCE");
+    bitoffs += CSP_ID_HOST_SIZE;
 
-    /* If this protocol has a sub-dissector call it here, see section 1.8 of
-     * README.dissector for more information. */
+    // Dest
+    proto_tree_add_bits_item(csp_tree, hf_csp_dst, tvb, bitoffs, CSP_ID_HOST_SIZE, ENC_BIG_ENDIAN);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "DEST");
+    bitoffs += CSP_ID_HOST_SIZE;
+
+    // SRC PORT
+    proto_tree_add_bits_item(csp_tree, hf_csp_sport, tvb, bitoffs, CSP_ID_PORT_SIZE, ENC_BIG_ENDIAN);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "SPORT");
+    bitoffs += CSP_ID_PORT_SIZE;
+
+    // DST PORT
+    proto_tree_add_bits_item(csp_tree, hf_csp_dport, tvb, bitoffs, CSP_ID_PORT_SIZE, ENC_BIG_ENDIAN);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "DPORT");
+    bitoffs += CSP_ID_PORT_SIZE;
+
+    // FLAGS
+    proto_tree_add_bits_item(csp_tree, hf_csp_flags, tvb, bitoffs, CSP_ID_FLAGS_SIZE, ENC_BIG_ENDIAN);
+    col_set_str(pinfo->cinfo, COL_PROTOCOL, "FLAGS");
+    bitoffs += CSP_ID_FLAGS_SIZE;
 
     /* Return the amount of data this dissector was able to dissect (which may
      * or may not be the total captured packet as we return here). */
@@ -217,16 +234,41 @@ void
 proto_register_csp(void)
 {
     module_t        *csp_module;
-    expert_module_t *expert_csp;
+    //expert_module_t *expert_csp;
 
     /* Setup list of header fields  See Section 1.5 of README.dissector for
      * details. */
     static hf_register_info hf[] = {
-        { &hf_csp_FIELDABBREV,
-          { "FIELDNAME", "PROTOABBREV.FIELDABBREV",
+        { &hf_csp_prio,
+          { "Priority", "CSP.PRIORITY",
             FT_FIELDTYPE, FIELDDISPLAY, FIELDCONVERT, BITMASK,
             "FIELDDESCR", HFILL }
-        }
+        },
+        { &hf_csp_src,
+          { "Source", "CSP.SOURCE",
+            FT_FIELDTYPE, FIELDDISPLAY, FIELDCONVERT, BITMASK,
+            "FIELDDESCR", HFILL }
+        },
+        { &hf_csp_dest,
+          { "Dest", "CSP.DEST",
+            FT_FIELDTYPE, FIELDDISPLAY, FIELDCONVERT, BITMASK,
+            "FIELDDESCR", HFILL }
+        },
+        { &hf_csp_sport,
+          { "Src_port", "CSP.SRC_PORT",
+            FT_FIELDTYPE, FIELDDISPLAY, FIELDCONVERT, BITMASK,
+            "FIELDDESCR", HFILL }
+        },
+        { &hf_csp_dport,
+          { "Dest_port", "CSP.DEST_PORT",
+            FT_FIELDTYPE, FIELDDISPLAY, FIELDCONVERT, BITMASK,
+            "FIELDDESCR", HFILL }
+        },
+        { &hf_csp_flags,
+          { "Flags", "CSP.FLAGS",
+            FT_FIELDTYPE, FIELDDISPLAY, FIELDCONVERT, BITMASK,
+            "FIELDDESCR", HFILL }
+        },
     };
 
     /* Setup protocol subtree array */
@@ -235,24 +277,28 @@ proto_register_csp(void)
     };
 
     /* Setup protocol expert items */
+    /*
     static ei_register_info ei[] = {
-        { &ei_PROTOABBREV_EXPERTABBREV,
-          { "PROTOABBREV.EXPERTABBREV", PI_SEVERITY, PI_GROUP,
+        { &ei_CSP_EXPERTABBREV,
+          { "CSP.EXPERTABBREV", PI_SEVERITY, PI_GROUP,
             "EXPERTDESCR", EXPFILL }
         }
     };
+    */
 
     /* Register the protocol name and description */
-    proto_csp = proto_register_protocol("PROTONAME",
-            "PROTOSHORTNAME", "PROTOABBREV");
+    proto_csp = proto_register_protocol("Libcsp",
+            "CubesatSpaceProtocol", "CSP");
 
     /* Required function calls to register the header fields and subtrees */
     proto_register_field_array(proto_csp, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
 
     /* Required function calls to register expert items */
+    /*
     expert_csp = expert_register_protocol(proto_csp);
     expert_register_field_array(expert_csp, ei, array_length(ei));
+    */
 
     /* Register a preferences module (see section 2.6 of README.dissector
      * for more details). Registration of a prefs callback is not required
@@ -261,8 +307,10 @@ proto_register_csp(void)
      * If the prefs callback is not needed, use NULL instead of
      * proto_reg_handoff_csp in the following.
      */
+    /*
     csp_module = prefs_register_protocol(proto_csp,
             proto_reg_handoff_csp);
+            */
 
     /* Register a preferences module under the preferences subtree.
      * Only use this function instead of prefs_register_protocol (above) if you
@@ -274,19 +322,25 @@ proto_register_csp(void)
      * will be accessible under Protocols->OSI->X.500-><PROTOSHORTNAME>
      * preferences node.
      */
+    /*
     csp_module = prefs_register_protocol_subtree(const char *subtree,
             proto_csp, proto_reg_handoff_csp);
+            */
 
     /* Register a simple example preference */
+    /*
     prefs_register_bool_preference(csp_module, "show_hex",
             "Display numbers in Hex",
             "Enable to display numerical values in hexadecimal.",
             &pref_hex);
+            */
 
     /* Register an example port preference */
+    /*
     prefs_register_uint_preference(csp_module, "tcp.port", "csp TCP Port",
             " csp TCP port if other than the default",
             10, &tcp_port_pref);
+            */
 }
 
 /* If this dissector uses sub-dissector registration add a registration routine.
@@ -304,6 +358,7 @@ proto_register_csp(void)
  * simpler form which can be used if there are no prefs-dependent registration
  * functions.
  */
+#if 0
 void
 proto_reg_handoff_csp(void)
 {
@@ -338,8 +393,8 @@ proto_reg_handoff_csp(void)
     dissector_add_uint("tcp.port", current_port, csp_handle);
 }
 
-#if 0
 
+#endif
 /* Simpler form of proto_reg_handoff_csp which can be used if there are
  * no prefs-dependent registration function calls. */
 void
@@ -351,11 +406,10 @@ proto_reg_handoff_csp(void)
      * returns the number of bytes it dissected (or 0 if it thinks the packet
      * does not belong to PROTONAME).
      */
-    csp_handle = create_dissector_handle(dissect_csp,
-            proto_csp);
-    dissector_add_uint_with_preference("tcp.port", csp_TCP_PORT, csp_handle);
+    csp_handle = create_dissector_handle(dissect_csp, proto_csp);
+    dissector_add_for_decode_as("can.subdissector", csp_handle);
+
 }
-#endif
 
 /*
  * Editor modelines  -  https://www.wireshark.org/tools/modelines.html
