@@ -1,0 +1,13 @@
+*.o
+*.a
+*.so
+*.sw[ponm]
+*.patch
+*.orig
+
+.deps*
+.libs*
+Makefile
+Makefile.in
+*.lo
+plugin.c
